@@ -1,99 +1,223 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Кликер с поочередным ID и Админ-панелью</title>
-    <style>
-        body { font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; margin-top: 50px; }
-        .hidden { display: none; }
-        .admin-panel { margin-top: 20px; }
-    </style>
+  <meta charset="UTF-8">
+  <title>Игра: Куда пойдёт Биткоин?</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      text-align: center;
+      padding: 2em;
+    }
+
+    h1 {
+      color: #58a6ff;
+    }
+
+    input, button {
+      padding: 0.6em 1em;
+      margin: 0.5em;
+      font-size: 1em;
+      border: none;
+      border-radius: 5px;
+    }
+
+    input {
+      background: #161b22;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+    }
+
+    button {
+      background-color: #238636;
+      color: white;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    button:hover {
+      background-color: #2ea043;
+    }
+
+    #status {
+      margin-top: 1em;
+      font-weight: bold;
+      color: #ffd700;
+    }
+
+    table {
+      width: 100%;
+      max-width: 800px;
+      margin: 2em auto;
+      border-collapse: collapse;
+      background-color: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th, td {
+      padding: 0.75em 1em;
+      border-bottom: 1px solid #30363d;
+    }
+
+    th {
+      background-color: #21262d;
+      color: #58a6ff;
+      font-weight: bold;
+    }
+
+    tr.win {
+      color: #3fb950;
+    }
+
+    tr.lose {
+      color: #f85149;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
 </head>
 <body>
+  <div class="container">
+    <h1>Игра: Куда пойдёт курс Биткоина?</h1>
+    <p>Текущий курс BTC: <span id="btc-price">Загрузка...</span> USD</p>
+    <p>Ваш баланс: $<span id="balance">0</span></p>
 
-    <h1>Кликер</h1>
-    <p>Ваш ID: <span id="userId">Неизвестно</span></p>
-    <p>Ваши очки: <span id="score">0</span></p>
-    <button onclick="increaseScore()">Кликнуть</button>
-
-    <div class="admin-panel hidden" id="adminPanel">
-        <h2>Панель Админа</h2>
-        <label for="targetId">ID получателя:</label>
-        <input type="number" id="targetId" min="1" required>
-        <label for="points">Очки:</label>
-        <input type="number" id="points" min="1" required>
-        <button onclick="grantPoints()">Выдать очки</button>
+    <div>
+      <input type="number" id="bet-amount" placeholder="Ставка ($)" min="1">
+      <button onclick="makePrediction('up')">Вверх</button>
+      <button onclick="makePrediction('down')">Вниз</button>
     </div>
 
-    <script>
-        // Функция для получения или создания ID пользователя по порядку
-        function getUserId() {
-            let userId = localStorage.getItem('userId');
+    <p id="status"></p>
 
-            if (!userId) {
-                // Получаем текущий ID из счетчика или устанавливаем его в 1, если еще не было пользователей
-                let currentId = localStorage.getItem('currentId');
-                if (!currentId) {
-                    currentId = 1;
-                } else {
-                    currentId = parseInt(currentId, 10) + 1;
-                }
-                
-                // Сохраняем новый ID для пользователя и обновляем счетчик
-                userId = currentId;
-                localStorage.setItem('userId', userId);
-                localStorage.setItem('currentId', currentId);
-            }
-            return userId;
-        }
+    <table id="history-table">
+      <thead>
+        <tr>
+          <th>Ставка ($)</th>
+          <th>Направление</th>
+          <th>Нач. курс</th>
+          <th>Фин. курс</th>
+          <th>Результат</th>
+        </tr>
+      </thead>
+      <tbody id="history-body">
+        <!-- История ставок появится здесь -->
+      </tbody>
+    </table>
+  </div>
 
-        // Инициализация пользователя
-        const userId = getUserId();
-        document.getElementById('userId').innerText = userId;
+  <script>
+    const priceElement = document.getElementById('btc-price');
+    const balanceElement = document.getElementById('balance');
+    const statusElement = document.getElementById('status');
+    const betInput = document.getElementById('bet-amount');
+    const historyBody = document.getElementById('history-body');
 
-        // Функция для получения текущего количества очков
-        function getScore() {
-            const score = localStorage.getItem(`score_${userId}`);
-            return score ? parseInt(score, 10) : 0;
-        }
+    let initialPrice = null;
+    let predictionDirection = null;
+    let betAmount = 0;
 
-        // Функция для обновления очков в интерфейсе
-        function updateScoreDisplay() {
-            document.getElementById('score').innerText = getScore();
-        }
+    let balance = parseFloat(localStorage.getItem('balance')) || 1000;
+    balanceElement.textContent = balance.toFixed(2);
 
-        // Увеличение очков на 1 при клике
-        function increaseScore() {
-            let score = getScore();
-            score += 1;
-            localStorage.setItem(`score_${userId}`, score);
-            updateScoreDisplay();
-        }
+    async function fetchBTCPrice() {
+      try {
+        const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd');
+        const data = await res.json();
+        return data.bitcoin.usd;
+      } catch (e) {
+        console.error(e);
+        return null;
+      }
+    }
 
-        // Проверка на админа (ID == 9427)
-        if (userId == 9427) {
-            document.getElementById('adminPanel').classList.remove('hidden');
-        }
+    async function updatePrice() {
+      const price = await fetchBTCPrice();
+      if (price !== null) {
+        priceElement.textContent = price;
+      } else {
+        priceElement.textContent = "Ошибка загрузки";
+      }
+    }
 
-        // Функция для выдачи очков другому пользователю
-        function grantPoints() {
-            const targetId = document.getElementById('targetId').value;
-            const points = parseInt(document.getElementById('points').value, 10);
+    async function makePrediction(direction) {
+      betAmount = parseFloat(betInput.value);
+      if (isNaN(betAmount) || betAmount <= 0 || betAmount > balance) {
+        alert("Введите корректную ставку.");
+        return;
+      }
 
-            if (targetId && points > 0) {
-                let targetScore = localStorage.getItem(`score_${targetId}`);
-                targetScore = targetScore ? parseInt(targetScore, 10) : 0;
-                targetScore += points;
-                localStorage.setItem(`score_${targetId}`, targetScore);
-                alert(`Выдано ${points} очков пользователю с ID ${targetId}.`);
-            } else {
-                alert("Введите корректные данные для выдачи очков.");
-            }
-        }
+      predictionDirection = direction;
+      initialPrice = await fetchBTCPrice();
+      if (!initialPrice) {
+        alert("Ошибка получения курса. Повторите попытку.");
+        return;
+      }
 
-        // Отображение начальных очков
-        updateScoreDisplay();
-    </script>
+      statusElement.textContent = `Вы выбрали "${direction.toUpperCase()}". Проверим через 5 минут...`;
+      balance -= betAmount;
+      updateBalance();
+
+      setTimeout(() => checkPrediction(direction, betAmount, initialPrice), 5 * 60 * 1000); // 5 минут
+    }
+
+    async function checkPrediction(direction, bet, startPrice) {
+      const finalPrice = await fetchBTCPrice();
+      if (!finalPrice) {
+        alert("Ошибка получения финального курса.");
+        return;
+      }
+
+      let win = false;
+      if (direction === 'up' && finalPrice > startPrice) win = true;
+      if (direction === 'down' && finalPrice < startPrice) win = true;
+
+      if (win) {
+        const winnings = bet * 2;
+        balance += winnings;
+        statusElement.textContent = `Угадали! Был ${startPrice}, стал ${finalPrice}. Выигрыш: $${winnings.toFixed(2)}.`;
+        addToHistory(bet, direction, startPrice, finalPrice, 'Выигрыш', true);
+      } else {
+        statusElement.textContent = `Не угадали. Был ${startPrice}, стал ${finalPrice}. Потеря: $${bet.toFixed(2)}.`;
+        addToHistory(bet, direction, startPrice, finalPrice, 'Поражение', false);
+      }
+
+      updateBalance();
+    }
+
+    function addToHistory(bet, direction, start, end, result, win) {
+      const row = document.createElement('tr');
+      row.className = win ? 'win' : 'lose';
+
+      row.innerHTML = `
+        <td>$${bet.toFixed(2)}</td>
+        <td>${direction === 'up' ? 'Вверх' : 'Вниз'}</td>
+        <td>${start}</td>
+        <td>${end}</td>
+        <td>${result}</td>
+      `;
+
+      historyBody.prepend(row);
+    }
+
+    function updateBalance() {
+      balanceElement.textContent = balance.toFixed(2);
+      localStorage.setItem('balance', balance.toFixed(2));
+    }
+
+    updatePrice();
+    setInterval(updatePrice, 60000); // каждую минуту
+  </script>
 </body>
 </html>
